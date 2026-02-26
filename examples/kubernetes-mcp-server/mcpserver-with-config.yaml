@@ -1,0 +1,31 @@
+---
+# ConfigMap containing the kubernetes-mcp-server configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubernetes-mcp-server-config
+  namespace: default
+data:
+  config.toml: |
+    # Kubernetes MCP Server Configuration
+    log_level = 5
+    port = "8080"
+    read_only = true
+    toolsets = ["core", "config"]
+---
+# MCPServer resource that uses the ConfigMap
+apiVersion: mcp.x-k8s.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: kubernetes-mcp-server
+  namespace: default
+spec:
+  image: quay.io/containers/kubernetes_mcp_server:latest
+  port: 8080
+  configMapRef:
+    name: kubernetes-mcp-server-config
+  configMapMountPath: /etc/mcp-config      # Optional: defaults to /etc/mcp-config
+  configMapVolumeName: mcp-config          # Optional: defaults to mcp-config
+  args:
+    - --config
+    - /etc/mcp-config/config.toml

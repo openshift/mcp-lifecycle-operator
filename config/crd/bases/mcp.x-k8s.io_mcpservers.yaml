@@ -1,0 +1,222 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.0
+  name: mcpservers.mcp.x-k8s.io
+spec:
+  group: mcp.x-k8s.io
+  names:
+    kind: MCPServer
+    listKind: MCPServerList
+    plural: mcpservers
+    singular: mcpserver
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.image
+      name: Image
+      type: string
+    - jsonPath: .spec.port
+      name: Port
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: MCPServer is the Schema for the mcpservers API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of MCPServer
+            properties:
+              args:
+                description: |-
+                  Args are additional command line arguments for the MCP server container.
+                  Use this to pass configuration flags to the server.
+                  Example: ["--config", "/etc/mcp-config/config.toml", "--verbose"]
+                items:
+                  type: string
+                type: array
+              configMapMountPath:
+                description: |-
+                  ConfigMapMountPath specifies the path where the ConfigMap should be mounted.
+                  Only used when ConfigMapRef is set. Defaults to /etc/mcp-config if not specified.
+                type: string
+              configMapRef:
+                description: |-
+                  ConfigMapRef references a ConfigMap containing configuration file(s).
+                  The ConfigMap will be mounted as a read-only volume.
+                  Use ConfigMapMountPath to specify where to mount it (defaults to /etc/mcp-config).
+                  Use ConfigMapVolumeName to specify the volume name (defaults to mcp-config).
+                  Use the Args field to point the server to the config file.
+                  Example:
+                    configMapRef:
+                      name: my-server-config
+                    configMapMountPath: /etc/mcp-config
+                    configMapVolumeName: mcp-config
+                    args:
+                      - --config
+                      - /etc/mcp-config/config.toml
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              configMapVolumeName:
+                description: |-
+                  ConfigMapVolumeName specifies the name of the volume for the ConfigMap mount.
+                  Only used when ConfigMapRef is set. Defaults to mcp-config if not specified.
+                type: string
+              image:
+                description: |-
+                  Image is the container image containing the MCP server implementation.
+                  Examples:
+                    - ghcr.io/modelcontextprotocol/servers/filesystem:latest
+                    - ghcr.io/modelcontextprotocol/servers/github:v1.0.0
+                    - custom-registry.io/my-mcp-server:1.2.3
+                minLength: 1
+                type: string
+              port:
+                description: |-
+                  Port is the port number on which the MCP server listens for connections.
+                  Must be between 1 and 65535.
+                  Should match the port the MCP server container exposes.
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              serviceAccountName:
+                description: |-
+                  ServiceAccountName is the name of the ServiceAccount to use for the MCP server pods.
+                  The ServiceAccount should have appropriate RBAC permissions for the MCP server's operations.
+                  If not specified, the default ServiceAccount for the namespace will be used.
+                  Example: For kubernetes-mcp-server with read-only access, create a ServiceAccount
+                  and bind it to the 'view' ClusterRole.
+                type: string
+            required:
+            - image
+            - port
+            type: object
+          status:
+            description: status defines the observed state of MCPServer
+            properties:
+              conditions:
+                description: |-
+                  Conditions represent the current state of the MCPServer resource.
+                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
+
+                  Standard condition types include:
+                  - "Ready": the resource is fully functional and available
+                  - "Progressing": the resource is being created or updated
+                  - "Degraded": the resource failed to reach or maintain its desired state
+
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              deploymentName:
+                description: DeploymentName is the name of the Deployment created
+                  for this MCPServer.
+                type: string
+              phase:
+                description: |-
+                  Phase represents the current lifecycle phase of the MCPServer.
+                  Possible values: Pending, Running, Failed
+                type: string
+              serviceName:
+                description: ServiceName is the name of the Service created for this
+                  MCPServer.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

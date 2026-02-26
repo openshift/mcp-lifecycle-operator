@@ -2,6 +2,170 @@
 
 A Kubernetes operator that provides a declarative API to deploy, manage, and safely roll out MCP Servers, handling their full lifecycle with production-grade automation and ecosystem integrations.
 
+## Prerequisites
+
+- Kubernetes cluster (v1.28+)
+- kubectl configured to access your cluster
+- Go 1.24+ (for building from source)
+
+## Testing on Your Cluster
+
+### 1. Install the CRDs
+
+First, install the Custom Resource Definitions:
+
+```bash
+make install
+```
+
+This creates the `MCPServer` CRD in your cluster.
+
+### 2. Run the Controller
+
+You have two options:
+
+#### Option A: Run Locally (Recommended for Testing)
+
+Run the controller on your local machine (it will connect to your cluster):
+
+```bash
+make run
+```
+
+Keep this terminal open. The controller logs will appear here.
+
+#### Option B: Deploy to Cluster
+
+Build and deploy the controller as a Deployment in your cluster:
+
+```bash
+# Build and push the container image for multiple platforms
+make docker-buildx IMG=<your-registry>/mcp-lifecycle-operator:latest
+
+# Deploy to cluster
+make deploy IMG=<your-registry>/mcp-lifecycle-operator:latest
+```
+
+Note: `docker-buildx` builds for multiple architectures (amd64, arm64, s390x, ppc64le) and pushes automatically.
+
+### 3. Create a Test MCPServer
+
+In a new terminal, create a test `MCPServer` resource:
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: mcp.x-k8s.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: test-server
+  namespace: default
+spec:
+  image: aliok/mcp-server-streamable-http:latest
+  port: 8081
+EOF
+```
+
+### 4. Verify the Deployment
+
+Check that the operator created the resources:
+
+```bash
+# View the MCPServer status
+kubectl get mcpservers
+kubectl get mcpserver test-server -o yaml
+
+# Verify the Deployment was created
+kubectl get deployment test-server
+
+# Verify the Service was created
+kubectl get service test-server
+
+# Check the pod is running
+kubectl get pods -l mcp-server=test-server
+```
+
+Expected output from `kubectl get mcpservers`:
+```
+NAME          PHASE     IMAGE                                      PORT   AGE
+test-server   Running   aliok/mcp-server-streamable-http:latest   8081   1m
+```
+
+### 5. Test the Service
+
+Port-forward to test connectivity:
+
+```bash
+kubectl port-forward service/test-server 8081:8081
+```
+
+Then in another terminal:
+```bash
+curl http://localhost:8081/mcp
+```
+
+You should see a response from the MCP server.
+
+### 6. Uninstall (Optional)
+
+To remove the CRDs and operator:
+
+```bash
+# If you deployed to cluster
+make undeploy
+
+# Remove the CRDs
+make uninstall
+```
+
+## Examples
+
+For complete examples with ConfigMap support and detailed documentation, see the [examples/](./examples/) directory:
+
+- **[kubernetes-mcp-server](./examples/kubernetes-mcp-server/)** - Deploy the Kubernetes MCP Server with basic and ConfigMap-based configurations
+
+## Example MCPServer Resources
+
+### Streamable HTTP MCP Server
+
+```yaml
+apiVersion: mcp.x-k8s.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: streamable-http-server
+  namespace: default
+spec:
+  image: aliok/mcp-server-streamable-http:latest
+  port: 8081
+```
+
+### Custom MCP Server
+
+```yaml
+apiVersion: mcp.x-k8s.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: custom-server
+  namespace: default
+spec:
+  image: my-registry.io/custom-mcp-server:1.0.0
+  port: 8000
+```
+
+## Development
+
+### Building
+
+```bash
+# Generate code and manifests
+make manifests generate
+
+# Build binary
+make build
+
+# Run tests
+make test
+```
+
 ## Community, discussion, contribution, and support
 
 Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/).
