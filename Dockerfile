@@ -1,3 +1,6 @@
+# Generated from kubebuilder template:
+# https://github.com/kubernetes-sigs/kubebuilder/blob/v4.11.1/pkg/plugins/golang/v4/scaffolds/internal/templates/dockerfile.go
+
 # Build the manager binary
 FROM golang:1.25 AS builder
 ARG TARGETOS

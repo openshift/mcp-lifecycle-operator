@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Generated from kubebuilder template:
+// https://github.com/kubernetes-sigs/kubebuilder/blob/v4.11.1/pkg/plugins/golang/v4/scaffolds/internal/templates/api/group.go
+
 // Package v1alpha1 contains API Schema definitions for the mcp v1alpha1 API group.
 // +kubebuilder:object:generate=true
 // +groupName=mcp.x-k8s.io
