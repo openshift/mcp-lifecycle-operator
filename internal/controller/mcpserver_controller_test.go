@@ -491,6 +491,243 @@ var _ = Describe("MCPServer Controller", func() {
 			Expect(container.EnvFrom[1].ConfigMapRef.Name).To(Equal("my-configmap"))
 		})
 	})
+
+	Context("When reconciling a resource with secretRef", func() {
+		const resourceName = "test-resource-secret"
+		const secretName = "my-secret"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			By("creating the secret referenced by SecretRef")
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: "default",
+				},
+				Data: map[string][]byte{
+					"token": []byte("test-token-value"),
+				},
+			}
+			Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, secret))).To(Succeed())
+		})
+
+		AfterEach(func() {
+			resource := &mcpv1alpha1.MCPServer{}
+			err := k8sClient.Get(ctx, typeNamespacedName, resource)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+
+			secret := &corev1.Secret{}
+			err = k8sClient.Get(ctx, client.ObjectKey{Name: secretName, Namespace: "default"}, secret)
+			if err == nil {
+				Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+			}
+		})
+
+		It("should mount the secret volume with default name and path", func() {
+			resource := &mcpv1alpha1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: mcpv1alpha1.MCPServerSpec{
+					Image: "test-image:latest",
+					Port:  8080,
+					SecretRef: &corev1.LocalObjectReference{
+						Name: "my-secret",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+			controllerReconciler := &MCPServerReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			deployment := &appsv1.Deployment{}
+			err = k8sClient.Get(ctx, client.ObjectKey{
+				Name:      resourceName,
+				Namespace: "default",
+			}, deployment)
+			Expect(err).NotTo(HaveOccurred())
+
+			volumes := deployment.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(1))
+			Expect(volumes[0].Name).To(Equal("mcp-secrets"))
+			Expect(volumes[0].Secret).NotTo(BeNil())
+			Expect(volumes[0].Secret.SecretName).To(Equal("my-secret"))
+
+			mounts := deployment.Spec.Template.Spec.Containers[0].VolumeMounts
+			Expect(mounts).To(HaveLen(1))
+			Expect(mounts[0].Name).To(Equal("mcp-secrets"))
+			Expect(mounts[0].MountPath).To(Equal("/etc/mcp-secrets"))
+			Expect(mounts[0].ReadOnly).To(BeTrue())
+		})
+
+		It("should use custom volume name and mount path when specified", func() {
+			resource := &mcpv1alpha1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: mcpv1alpha1.MCPServerSpec{
+					Image: "test-image:latest",
+					Port:  8080,
+					SecretRef: &corev1.LocalObjectReference{
+						Name: "my-secret",
+					},
+					SecretVolumeName: "custom-vol",
+					SecretMountPath:  "/custom/path",
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+			controllerReconciler := &MCPServerReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			deployment := &appsv1.Deployment{}
+			err = k8sClient.Get(ctx, client.ObjectKey{
+				Name:      resourceName,
+				Namespace: "default",
+			}, deployment)
+			Expect(err).NotTo(HaveOccurred())
+
+			volumes := deployment.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(1))
+			Expect(volumes[0].Name).To(Equal("custom-vol"))
+			Expect(volumes[0].Secret.SecretName).To(Equal("my-secret"))
+
+			mounts := deployment.Spec.Template.Spec.Containers[0].VolumeMounts
+			Expect(mounts).To(HaveLen(1))
+			Expect(mounts[0].Name).To(Equal("custom-vol"))
+			Expect(mounts[0].MountPath).To(Equal("/custom/path"))
+		})
+
+		It("should mount both secret and configmap volumes together", func() {
+			resource := &mcpv1alpha1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: mcpv1alpha1.MCPServerSpec{
+					Image: "test-image:latest",
+					Port:  8080,
+					SecretRef: &corev1.LocalObjectReference{
+						Name: "my-secret",
+					},
+					ConfigMapRef: &corev1.LocalObjectReference{
+						Name: "my-config",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+			controllerReconciler := &MCPServerReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			deployment := &appsv1.Deployment{}
+			err = k8sClient.Get(ctx, client.ObjectKey{
+				Name:      resourceName,
+				Namespace: "default",
+			}, deployment)
+			Expect(err).NotTo(HaveOccurred())
+
+			volumes := deployment.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(2))
+
+			mounts := deployment.Spec.Template.Spec.Containers[0].VolumeMounts
+			Expect(mounts).To(HaveLen(2))
+
+			Expect(volumes).To(ContainElement(SatisfyAll(
+				HaveField("Name", "mcp-secrets"),
+				HaveField("VolumeSource.Secret.SecretName", "my-secret"),
+			)))
+			Expect(volumes).To(ContainElement(SatisfyAll(
+				HaveField("Name", "mcp-config"),
+				HaveField("VolumeSource.ConfigMap.Name", "my-config"),
+			)))
+
+			Expect(mounts).To(ContainElement(SatisfyAll(
+				HaveField("Name", "mcp-secrets"),
+				HaveField("MountPath", "/etc/mcp-secrets"),
+				HaveField("ReadOnly", true),
+			)))
+			Expect(mounts).To(ContainElement(SatisfyAll(
+				HaveField("Name", "mcp-config"),
+				HaveField("MountPath", "/etc/mcp-config"),
+				HaveField("ReadOnly", true),
+			)))
+		})
+	})
+
+	Context("When reconciling a resource with a non-existent secret", func() {
+		const resourceName = "test-resource-missing-secret"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		AfterEach(func() {
+			resource := &mcpv1alpha1.MCPServer{}
+			err := k8sClient.Get(ctx, typeNamespacedName, resource)
+			if err == nil {
+				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			}
+		})
+
+		It("should return a not found error when the referenced secret does not exist", func() {
+			resource := &mcpv1alpha1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: mcpv1alpha1.MCPServerSpec{
+					Image: "test-image:latest",
+					Port:  8080,
+					SecretRef: &corev1.LocalObjectReference{
+						Name: "nonexistent-secret",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+			controllerReconciler := &MCPServerReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+	})
 })
 
 var _ = Describe("Phase Constants", func() {

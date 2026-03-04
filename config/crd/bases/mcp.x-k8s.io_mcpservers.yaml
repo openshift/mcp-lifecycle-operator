@@ -558,6 +558,34 @@ spec:
                 maximum: 65535
                 minimum: 1
                 type: integer
+              secretMountPath:
+                description: |-
+                  SecretMountPath specifies the path where the Secret should be mounted.
+                  Only used when SecretRef is set
+                type: string
+              secretRef:
+                description: |-
+                  SecretRef references a Secret containing credentials
+                  The Secret will be mounted as a read-only volume.
+                  Use SecretMountPath to specify where to mount it.
+                  Use SecretVolumeName to specify the volume name.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              secretVolumeName:
+                description: |-
+                  SecretVolumeName specifies the name of the volume for the Secret mount.
+                  Only used when SecretRef is set.
+                type: string
               securityContext:
                 description: SecurityContext specifies the security context for the
                   MCP server container.

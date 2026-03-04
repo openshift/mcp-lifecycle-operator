@@ -56,6 +56,7 @@ type MCPServerReconciler struct {
 // +kubebuilder:rbac:groups=mcp.x-k8s.io,resources=mcpservers/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -285,6 +286,34 @@ func (r *MCPServerReconciler) createDeployment(mcpServer *mcpv1alpha1.MCPServer)
 
 	// Add volume mount if ConfigMapRef is specified
 	var volumes []corev1.Volume
+	var volumeMounts []corev1.VolumeMount
+
+	// Add volume mount if SecretRef is specified
+	if mcpServer.Spec.SecretRef != nil {
+		volumeName := mcpServer.Spec.SecretVolumeName
+		if volumeName == "" {
+			volumeName = "mcp-secrets"
+		}
+		mountPath := mcpServer.Spec.SecretMountPath
+		if mountPath == "" {
+			mountPath = "/etc/mcp-secrets"
+		}
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: mountPath,
+			ReadOnly:  true,
+		})
+		volumes = append(volumes, corev1.Volume{
+			Name: volumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: mcpServer.Spec.SecretRef.Name,
+				},
+			},
+		})
+	}
+
+	// Add volume mount if ConfigMapRef is specified
 	if mcpServer.Spec.ConfigMapRef != nil {
 		volumeName := mcpServer.Spec.ConfigMapVolumeName
 		if volumeName == "" {
@@ -294,24 +323,22 @@ func (r *MCPServerReconciler) createDeployment(mcpServer *mcpv1alpha1.MCPServer)
 		if mountPath == "" {
 			mountPath = "/etc/mcp-config"
 		}
-		container.VolumeMounts = []corev1.VolumeMount{
-			{
-				Name:      volumeName,
-				MountPath: mountPath,
-				ReadOnly:  true,
-			},
-		}
-		volumes = []corev1.Volume{
-			{
-				Name: volumeName,
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: *mcpServer.Spec.ConfigMapRef,
-					},
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: mountPath,
+			ReadOnly:  true,
+		})
+		volumes = append(volumes, corev1.Volume{
+			Name: volumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: *mcpServer.Spec.ConfigMapRef,
 				},
 			},
-		}
+		})
 	}
+
+	container.VolumeMounts = volumeMounts
 
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{

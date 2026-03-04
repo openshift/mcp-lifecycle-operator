@@ -107,6 +107,23 @@ type MCPServerSpec struct {
 	// SecurityContext specifies the security context for the MCP server container.
 	// +optional
 	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+
+	// SecretRef references a Secret containing credentials
+	// The Secret will be mounted as a read-only volume.
+	// Use SecretMountPath to specify where to mount it.
+	// Use SecretVolumeName to specify the volume name.
+	// +optional
+	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
+
+	// SecretMountPath specifies the path where the Secret should be mounted.
+	// Only used when SecretRef is set
+	// +optional
+	SecretMountPath string `json:"secretMountPath,omitempty"`
+
+	// SecretVolumeName specifies the name of the volume for the Secret mount.
+	// Only used when SecretRef is set.
+	// +optional
+	SecretVolumeName string `json:"secretVolumeName,omitempty"`
 }
 
 // MCPServerStatus defines the observed state of MCPServer.
