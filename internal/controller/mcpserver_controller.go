@@ -21,6 +21,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -293,7 +294,8 @@ func (r *MCPServerReconciler) createDeployment(ctx context.Context, mcpServer *m
 	// Add volume mount if SecretRef is specified
 	if mcpServer.Spec.SecretRef != nil {
 
-		if err := r.Get(ctx, client.ObjectKey{Name: mcpServer.Spec.SecretRef.Name, Namespace: mcpServer.Namespace}, &corev1.Secret{}); err != nil {
+		existingSecret := &corev1.Secret{}
+		if err := r.Get(ctx, client.ObjectKey{Name: mcpServer.Spec.SecretRef.Name, Namespace: mcpServer.Namespace}, existingSecret); err != nil {
 			return nil, err
 		}
 
@@ -305,11 +307,23 @@ func (r *MCPServerReconciler) createDeployment(ctx context.Context, mcpServer *m
 		if mountPath == "" {
 			mountPath = "/etc/mcp-secrets"
 		}
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+		volumeMount := corev1.VolumeMount{
 			Name:      volumeName,
 			MountPath: mountPath,
 			ReadOnly:  true,
-		})
+		}
+		if secretKey := mcpServer.Spec.SecretKey; secretKey != "" {
+			if mcpServer.Spec.SecretMountPath == "" {
+				log.FromContext(ctx).Info("Warning: secretKey is set without secretMountPath; the default path will be used as a file, not a directory",
+					"secretKey", secretKey, "defaultMountPath", "/etc/mcp-secrets")
+			}
+			if _, ok := existingSecret.Data[secretKey]; !ok {
+				return nil, fmt.Errorf("secret key %s not found in secret %s/%s", secretKey, mcpServer.Spec.SecretRef.Name, mcpServer.Namespace)
+			}
+			volumeMount.SubPath = secretKey
+		}
+
+		volumeMounts = append(volumeMounts, volumeMount)
 		volumes = append(volumes, corev1.Volume{
 			Name: volumeName,
 			VolumeSource: corev1.VolumeSource{

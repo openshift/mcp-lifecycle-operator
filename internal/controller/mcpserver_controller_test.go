@@ -511,7 +511,8 @@ var _ = Describe("MCPServer Controller", func() {
 					Namespace: "default",
 				},
 				Data: map[string][]byte{
-					"token": []byte("test-token-value"),
+					"token":  []byte("test-token-value"),
+					"ca.pem": []byte("test-ca-cert-data"),
 				},
 			}
 			Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, secret))).To(Succeed())
@@ -618,6 +619,91 @@ var _ = Describe("MCPServer Controller", func() {
 			Expect(mounts).To(HaveLen(1))
 			Expect(mounts[0].Name).To(Equal("custom-vol"))
 			Expect(mounts[0].MountPath).To(Equal("/custom/path"))
+		})
+
+		It("should set SubPath on the volume mount when secretKey is specified", func() {
+			resource := &mcpv1alpha1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: mcpv1alpha1.MCPServerSpec{
+					Image: "test-image:latest",
+					Port:  8080,
+					SecretRef: &corev1.LocalObjectReference{
+						Name: "my-secret",
+					},
+					SecretKey:       "ca.pem",
+					SecretMountPath: "/app/certs/ca.pem",
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+			controllerReconciler := &MCPServerReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			deployment := &appsv1.Deployment{}
+			err = k8sClient.Get(ctx, client.ObjectKey{
+				Name:      resourceName,
+				Namespace: "default",
+			}, deployment)
+			Expect(err).NotTo(HaveOccurred())
+
+			volumes := deployment.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(1))
+			Expect(volumes[0].Name).To(Equal("mcp-secrets"))
+			Expect(volumes[0].Secret).NotTo(BeNil())
+			Expect(volumes[0].Secret.SecretName).To(Equal("my-secret"))
+
+			mounts := deployment.Spec.Template.Spec.Containers[0].VolumeMounts
+			Expect(mounts).To(HaveLen(1))
+			Expect(mounts[0].Name).To(Equal("mcp-secrets"))
+			Expect(mounts[0].MountPath).To(Equal("/app/certs/ca.pem"))
+			Expect(mounts[0].SubPath).To(Equal("ca.pem"))
+			Expect(mounts[0].ReadOnly).To(BeTrue())
+		})
+
+		It("should not set SubPath when secretKey is not specified", func() {
+			resource := &mcpv1alpha1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: mcpv1alpha1.MCPServerSpec{
+					Image: "test-image:latest",
+					Port:  8080,
+					SecretRef: &corev1.LocalObjectReference{
+						Name: "my-secret",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+			controllerReconciler := &MCPServerReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			deployment := &appsv1.Deployment{}
+			err = k8sClient.Get(ctx, client.ObjectKey{
+				Name:      resourceName,
+				Namespace: "default",
+			}, deployment)
+			Expect(err).NotTo(HaveOccurred())
+
+			mounts := deployment.Spec.Template.Spec.Containers[0].VolumeMounts
+			Expect(mounts).To(HaveLen(1))
+			Expect(mounts[0].SubPath).To(BeEmpty())
 		})
 
 		It("should mount both secret and configmap volumes together", func() {

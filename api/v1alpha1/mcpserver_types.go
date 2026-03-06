@@ -98,6 +98,7 @@ type MCPServerSpec struct {
 	// The keys become the variable names. Useful when a Secret's keys already match
 	// the expected env var names (e.g., GITHUB_TOKEN).
 	// +optional
+
 	EnvFrom []corev1.EnvFromSource `json:"envFrom,omitempty"`
 
 	// PodSecurityContext specifies the security context for the MCP server pod.
@@ -112,6 +113,7 @@ type MCPServerSpec struct {
 	// The Secret will be mounted as a read-only volume.
 	// Use SecretMountPath to specify where to mount it.
 	// Use SecretVolumeName to specify the volume name.
+	// Use SecretKey to specify the key of the Secret to mount.
 	// +optional
 	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
 
@@ -119,6 +121,11 @@ type MCPServerSpec struct {
 	// Only used when SecretRef is set. Defaults to /etc/mcp-secrets if not specified.
 	// +optional
 	SecretMountPath string `json:"secretMountPath,omitempty"`
+
+	// SecretKey specifies the key of the Secret to mount.
+	// Only used when SecretRef is set.
+	// +optional
+	SecretKey string `json:"secretKey,omitempty"`
 
 	// SecretVolumeName specifies the name of the volume for the Secret mount.
 	// Only used when SecretRef is set. Defaults to mcp-secrets if not specified.

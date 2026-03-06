@@ -558,6 +558,11 @@ spec:
                 maximum: 65535
                 minimum: 1
                 type: integer
+              secretKey:
+                description: |-
+                  SecretKey specifies the key of the Secret to mount.
+                  Only used when SecretRef is set.
+                type: string
               secretMountPath:
                 description: |-
                   SecretMountPath specifies the path where the Secret should be mounted.
