@@ -56,26 +56,26 @@ type MCPServerReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
 func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
 	// Fetch the MCPServer instance
 	mcpServer := &mcpv1alpha1.MCPServer{}
 	if err := r.Get(ctx, req.NamespacedName, mcpServer); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Info("MCPServer resource not found, ignoring since object must be deleted")
+			logger.Info("MCPServer resource not found, ignoring since object must be deleted")
 			return ctrl.Result{}, nil
 		}
-		log.Error(err, "Failed to get MCPServer")
+		logger.Error(err, "Failed to get MCPServer")
 		return ctrl.Result{}, err
 	}
 
-	log.Info("Reconciling MCPServer", "name", mcpServer.Name, "namespace", mcpServer.Namespace)
+	logger.Info("Reconciling MCPServer", "name", mcpServer.Name, "namespace", mcpServer.Namespace)
 
 	// Set initial phase
 	if mcpServer.Status.Phase == "" {
 		mcpServer.Status.Phase = "Pending"
 		if err := r.Status().Update(ctx, mcpServer); err != nil {
-			log.Error(err, "Failed to update MCPServer status")
+			logger.Error(err, "Failed to update MCPServer status")
 			return ctrl.Result{}, err
 		}
 	}
@@ -83,26 +83,26 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Create or update Deployment
 	deployment := r.createDeployment(mcpServer)
 	if err := controllerutil.SetControllerReference(mcpServer, deployment, r.Scheme); err != nil {
-		log.Error(err, "Failed to set controller reference for Deployment")
+		logger.Error(err, "Failed to set controller reference for Deployment")
 		return ctrl.Result{}, err
 	}
 
 	existingDeployment := &appsv1.Deployment{}
 	err := r.Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, existingDeployment)
 	if err != nil && apierrors.IsNotFound(err) {
-		log.Info("Creating Deployment", "name", deployment.Name)
+		logger.Info("Creating Deployment", "name", deployment.Name)
 		if err := r.Create(ctx, deployment); err != nil {
-			log.Error(err, "Failed to create Deployment")
+			logger.Error(err, "Failed to create Deployment")
 			r.updateStatusFailed(ctx, mcpServer, "Failed to create Deployment")
 			return ctrl.Result{}, err
 		}
 		// After creation, fetch it again to get the current status
 		if err := r.Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, existingDeployment); err != nil {
-			log.Error(err, "Failed to get newly created Deployment")
+			logger.Error(err, "Failed to get newly created Deployment")
 			return ctrl.Result{}, err
 		}
 	} else if err != nil {
-		log.Error(err, "Failed to get Deployment")
+		logger.Error(err, "Failed to get Deployment")
 		return ctrl.Result{}, err
 	} else {
 		oldPodSpec := existingDeployment.Spec.Template.Spec
@@ -111,38 +111,38 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			!equality.Semantic.DeepEqual(oldPodSpec.Containers[0].Env, newPodSpec.Containers[0].Env) ||
 			!equality.Semantic.DeepEqual(oldPodSpec.Containers[0].EnvFrom, newPodSpec.Containers[0].EnvFrom)
 		if needsUpdate {
-			log.Info("Updating Deployment", "name", existingDeployment.Name)
+			logger.Info("Updating Deployment", "name", existingDeployment.Name)
 			existingDeployment.Spec.Template.Spec = deployment.Spec.Template.Spec
 			if err := r.Update(ctx, existingDeployment); err != nil {
-				log.Error(err, "Failed to update Deployment")
+				logger.Error(err, "Failed to update Deployment")
 				return ctrl.Result{}, err
 			}
 		} else {
-			log.Info("Deployment already exists and is up to date", "name", deployment.Name)
+			logger.Info("Deployment already exists and is up to date", "name", deployment.Name)
 		}
 	}
 
 	// Create or update Service
 	service := r.createService(mcpServer)
 	if err := controllerutil.SetControllerReference(mcpServer, service, r.Scheme); err != nil {
-		log.Error(err, "Failed to set controller reference for Service")
+		logger.Error(err, "Failed to set controller reference for Service")
 		return ctrl.Result{}, err
 	}
 
 	existingService := &corev1.Service{}
 	err = r.Get(ctx, client.ObjectKey{Name: service.Name, Namespace: service.Namespace}, existingService)
 	if err != nil && apierrors.IsNotFound(err) {
-		log.Info("Creating Service", "name", service.Name)
+		logger.Info("Creating Service", "name", service.Name)
 		if err := r.Create(ctx, service); err != nil {
-			log.Error(err, "Failed to create Service")
+			logger.Error(err, "Failed to create Service")
 			r.updateStatusFailed(ctx, mcpServer, "Failed to create Service")
 			return ctrl.Result{}, err
 		}
 	} else if err != nil {
-		log.Error(err, "Failed to get Service")
+		logger.Error(err, "Failed to get Service")
 		return ctrl.Result{}, err
 	} else {
-		log.Info("Service already exists", "name", service.Name)
+		logger.Info("Service already exists", "name", service.Name)
 	}
 
 	// Update status based on Deployment status
@@ -221,11 +221,11 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if err := r.Status().Update(ctx, mcpServer); err != nil {
-		log.Error(err, "Failed to update MCPServer status")
+		logger.Error(err, "Failed to update MCPServer status")
 		return ctrl.Result{}, err
 	}
 
-	log.Info("Successfully reconciled MCPServer", "phase", mcpServer.Status.Phase)
+	logger.Info("Successfully reconciled MCPServer", "phase", mcpServer.Status.Phase)
 	return ctrl.Result{}, nil
 }
 
