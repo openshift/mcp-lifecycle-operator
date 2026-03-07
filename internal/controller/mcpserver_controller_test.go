@@ -440,3 +440,69 @@ var _ = Describe("MCPServer Controller - reconcileService", func() {
 		Expect(reconciler.reconcileService(ctx, mcpServer)).To(Succeed())
 	})
 })
+
+var _ = Describe("determinePhase", func() {
+	var generation int64 = 1
+
+	It("should return Pending when deployment has no conditions and no ready replicas", func() {
+		deployment := &appsv1.Deployment{
+			Status: appsv1.DeploymentStatus{},
+		}
+		phase, condition := determinePhase(deployment, generation)
+		Expect(phase).To(Equal(PhasePending))
+		Expect(condition.Reason).To(Equal("DeploymentPending"))
+		Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+	})
+
+	It("should return Running when deployment is available with ready replicas", func() {
+		deployment := &appsv1.Deployment{
+			Status: appsv1.DeploymentStatus{
+				ReadyReplicas: 1,
+				Conditions: []appsv1.DeploymentCondition{
+					{
+						Type:   appsv1.DeploymentAvailable,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		}
+		phase, condition := determinePhase(deployment, generation)
+		Expect(phase).To(Equal(PhaseRunning))
+		Expect(condition.Reason).To(Equal("DeploymentAvailable"))
+		Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+	})
+
+	It("should return Failed when deployment has replica failure", func() {
+		deployment := &appsv1.Deployment{
+			Status: appsv1.DeploymentStatus{
+				Conditions: []appsv1.DeploymentCondition{
+					{
+						Type:    appsv1.DeploymentReplicaFailure,
+						Status:  corev1.ConditionTrue,
+						Message: "replica failed",
+					},
+				},
+			},
+		}
+		phase, condition := determinePhase(deployment, generation)
+		Expect(phase).To(Equal(PhaseFailed))
+		Expect(condition.Reason).To(Equal("DeploymentFailed"))
+		Expect(condition.Message).To(Equal("replica failed"))
+	})
+
+	It("should return Pending when deployment is progressing", func() {
+		deployment := &appsv1.Deployment{
+			Status: appsv1.DeploymentStatus{
+				Conditions: []appsv1.DeploymentCondition{
+					{
+						Type:   appsv1.DeploymentProgressing,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		}
+		phase, condition := determinePhase(deployment, generation)
+		Expect(phase).To(Equal(PhasePending))
+		Expect(condition.Reason).To(Equal("DeploymentProgressing"))
+	})
+})

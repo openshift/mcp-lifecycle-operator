@@ -104,13 +104,31 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	mcpServer.Status.DeploymentName = existingDeployment.Name
 	mcpServer.Status.ServiceName = mcpServer.Name
 
-	// Check Deployment status to determine MCPServer phase
+	// Determine phase from deployment status
+	phase, condition := determinePhase(existingDeployment, mcpServer.Generation)
+	mcpServer.Status.Phase = phase
+	meta.SetStatusCondition(&mcpServer.Status.Conditions, condition)
+
+	if err := r.Status().Update(ctx, mcpServer); err != nil {
+		logger.Error(err, "Failed to update MCPServer status")
+		return ctrl.Result{}, err
+	}
+
+	logger.Info("Successfully reconciled MCPServer", "phase", mcpServer.Status.Phase)
+	return ctrl.Result{}, nil
+}
+
+// determinePhase maps deployment status to an MCPServer phase and condition.
+func determinePhase(
+	deployment *appsv1.Deployment,
+	generation int64,
+) (string, metav1.Condition) {
 	deploymentAvailable := false
 	deploymentProgressing := false
 	deploymentReplicaFailure := false
 	var deploymentMessage string
 
-	for _, condition := range existingDeployment.Status.Conditions {
+	for _, condition := range deployment.Status.Conditions {
 		switch condition.Type {
 		case appsv1.DeploymentAvailable:
 			if condition.Status == corev1.ConditionTrue {
@@ -131,57 +149,47 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	// Set phase and conditions based on Deployment status
-	if len(existingDeployment.Status.Conditions) == 0 && existingDeployment.Status.ReadyReplicas == 0 {
-		mcpServer.Status.Phase = PhasePending
-		meta.SetStatusCondition(&mcpServer.Status.Conditions, metav1.Condition{
+	if len(deployment.Status.Conditions) == 0 && deployment.Status.ReadyReplicas == 0 {
+		return PhasePending, metav1.Condition{
 			Type:               "Ready",
 			Status:             metav1.ConditionFalse,
 			Reason:             "DeploymentPending",
 			Message:            "Waiting for Deployment to report status",
-			ObservedGeneration: mcpServer.Generation,
-		})
-	} else if deploymentAvailable && existingDeployment.Status.ReadyReplicas > 0 {
-		mcpServer.Status.Phase = PhaseRunning
-		meta.SetStatusCondition(&mcpServer.Status.Conditions, metav1.Condition{
+			ObservedGeneration: generation,
+		}
+	}
+
+	if deploymentAvailable && deployment.Status.ReadyReplicas > 0 {
+		return PhaseRunning, metav1.Condition{
 			Type:               "Ready",
 			Status:             metav1.ConditionTrue,
 			Reason:             "DeploymentAvailable",
 			Message:            "Deployment is available and ready",
-			ObservedGeneration: mcpServer.Generation,
-		})
-	} else if deploymentReplicaFailure || (!deploymentProgressing && !deploymentAvailable) {
-		mcpServer.Status.Phase = PhaseFailed
+			ObservedGeneration: generation,
+		}
+	}
+
+	if deploymentReplicaFailure || (!deploymentProgressing && !deploymentAvailable) {
 		message := "Deployment failed"
 		if deploymentMessage != "" {
 			message = deploymentMessage
 		}
-		meta.SetStatusCondition(&mcpServer.Status.Conditions, metav1.Condition{
+		return PhaseFailed, metav1.Condition{
 			Type:               "Ready",
 			Status:             metav1.ConditionFalse,
 			Reason:             "DeploymentFailed",
 			Message:            message,
-			ObservedGeneration: mcpServer.Generation,
-		})
-	} else {
-		// Deployment is progressing but not yet available
-		mcpServer.Status.Phase = PhasePending
-		meta.SetStatusCondition(&mcpServer.Status.Conditions, metav1.Condition{
-			Type:               "Ready",
-			Status:             metav1.ConditionFalse,
-			Reason:             "DeploymentProgressing",
-			Message:            "Deployment is progressing",
-			ObservedGeneration: mcpServer.Generation,
-		})
+			ObservedGeneration: generation,
+		}
 	}
 
-	if err := r.Status().Update(ctx, mcpServer); err != nil {
-		logger.Error(err, "Failed to update MCPServer status")
-		return ctrl.Result{}, err
+	return PhasePending, metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionFalse,
+		Reason:             "DeploymentProgressing",
+		Message:            "Deployment is progressing",
+		ObservedGeneration: generation,
 	}
-
-	logger.Info("Successfully reconciled MCPServer", "phase", mcpServer.Status.Phase)
-	return ctrl.Result{}, nil
 }
 
 // reconcileDeployment creates or updates the Deployment for the MCPServer
