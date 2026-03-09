@@ -281,9 +281,7 @@ func (r *MCPServerReconciler) createDeployment(mcpServer *mcpv1alpha1.MCPServer)
 	}
 
 	// Add security context if specified
-	if mcpServer.Spec.SecurityContext != nil {
-		container.SecurityContext = mcpServer.Spec.SecurityContext
-	}
+	container.SecurityContext = mcpServer.Spec.SecurityContext
 
 	// Add volume mount if ConfigMapRef is specified
 	var volumes []corev1.Volume
@@ -342,9 +340,7 @@ func (r *MCPServerReconciler) createDeployment(mcpServer *mcpv1alpha1.MCPServer)
 	}
 
 	// Add pod security context if specified
-	if mcpServer.Spec.PodSecurityContext != nil {
-		deployment.Spec.Template.Spec.SecurityContext = mcpServer.Spec.PodSecurityContext
-	}
+	deployment.Spec.Template.Spec.SecurityContext = mcpServer.Spec.PodSecurityContext
 
 	return deployment
 }
