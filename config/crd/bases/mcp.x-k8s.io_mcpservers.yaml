@@ -558,6 +558,40 @@ spec:
                 maximum: 65535
                 minimum: 1
                 type: integer
+              secretKey:
+                description: |-
+                  SecretKey specifies the key of the Secret to mount.
+                  Only used when SecretRef is set.
+                type: string
+              secretMountPath:
+                description: |-
+                  SecretMountPath specifies the path where the Secret should be mounted.
+                  Only used when SecretRef is set. Defaults to /etc/mcp-secrets if not specified.
+                type: string
+              secretRef:
+                description: |-
+                  SecretRef references a Secret containing credentials
+                  The Secret will be mounted as a read-only volume.
+                  Use SecretMountPath to specify where to mount it.
+                  Use SecretVolumeName to specify the volume name.
+                  Use SecretKey to specify the key of the Secret to mount.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              secretVolumeName:
+                description: |-
+                  SecretVolumeName specifies the name of the volume for the Secret mount.
+                  Only used when SecretRef is set. Defaults to mcp-secrets if not specified.
+                type: string
               securityContext:
                 description: SecurityContext specifies the security context for the
                   MCP server container.

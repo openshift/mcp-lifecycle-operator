@@ -21,6 +21,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -56,6 +57,7 @@ type MCPServerReconciler struct {
 // +kubebuilder:rbac:groups=mcp.x-k8s.io,resources=mcpservers/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -200,14 +202,19 @@ func (r *MCPServerReconciler) reconcileDeployment(
 ) (*appsv1.Deployment, error) {
 	logger := log.FromContext(ctx)
 
-	deployment := r.createDeployment(mcpServer)
+	deployment, err := r.createDeployment(ctx, mcpServer)
+	if err != nil {
+		logger.Error(err, "Failed to create Deployment")
+		r.updateStatusFailed(ctx, mcpServer, "Failed to create Deployment")
+		return nil, err
+	}
 	if err := controllerutil.SetControllerReference(mcpServer, deployment, r.Scheme); err != nil {
 		logger.Error(err, "Failed to set controller reference for Deployment")
 		return nil, err
 	}
 
 	existingDeployment := &appsv1.Deployment{}
-	err := r.Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, existingDeployment)
+	err = r.Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, existingDeployment)
 	if err != nil && apierrors.IsNotFound(err) {
 		logger.Info("Creating Deployment", "name", deployment.Name)
 		if err := r.Create(ctx, deployment); err != nil {
@@ -232,7 +239,9 @@ func (r *MCPServerReconciler) reconcileDeployment(
 		!equality.Semantic.DeepEqual(oldPodSpec.Containers[0].Env, newPodSpec.Containers[0].Env) ||
 		!equality.Semantic.DeepEqual(oldPodSpec.Containers[0].EnvFrom, newPodSpec.Containers[0].EnvFrom) ||
 		!equality.Semantic.DeepEqual(oldPodSpec.Containers[0].SecurityContext, newPodSpec.Containers[0].SecurityContext) ||
-		!equality.Semantic.DeepEqual(oldPodSpec.SecurityContext, newPodSpec.SecurityContext)
+		!equality.Semantic.DeepEqual(oldPodSpec.SecurityContext, newPodSpec.SecurityContext) ||
+		!equality.Semantic.DeepEqual(oldPodSpec.Volumes, newPodSpec.Volumes) ||
+		!equality.Semantic.DeepEqual(oldPodSpec.Containers[0].VolumeMounts, newPodSpec.Containers[0].VolumeMounts)
 	if needsUpdate {
 		logger.Info("Updating Deployment", "name", existingDeployment.Name)
 		existingDeployment.Spec.Template.Spec = deployment.Spec.Template.Spec
@@ -248,7 +257,7 @@ func (r *MCPServerReconciler) reconcileDeployment(
 }
 
 // createDeployment creates a Deployment for the MCPServer
-func (r *MCPServerReconciler) createDeployment(mcpServer *mcpv1alpha1.MCPServer) *appsv1.Deployment {
+func (r *MCPServerReconciler) createDeployment(ctx context.Context, mcpServer *mcpv1alpha1.MCPServer) (*appsv1.Deployment, error) {
 	replicas := int32(1)
 	labels := map[string]string{
 		"app":        "mcp-server",
@@ -285,6 +294,51 @@ func (r *MCPServerReconciler) createDeployment(mcpServer *mcpv1alpha1.MCPServer)
 
 	// Add volume mount if ConfigMapRef is specified
 	var volumes []corev1.Volume
+	var volumeMounts []corev1.VolumeMount
+
+	// Add volume mount if SecretRef is specified
+	if mcpServer.Spec.SecretRef != nil {
+
+		existingSecret := &corev1.Secret{}
+		if err := r.Get(ctx, client.ObjectKey{Name: mcpServer.Spec.SecretRef.Name, Namespace: mcpServer.Namespace}, existingSecret); err != nil {
+			return nil, err
+		}
+
+		volumeName := mcpServer.Spec.SecretVolumeName
+		if volumeName == "" {
+			volumeName = "mcp-secrets"
+		}
+		mountPath := mcpServer.Spec.SecretMountPath
+		if mountPath == "" {
+			mountPath = "/etc/mcp-secrets"
+		}
+		volumeMount := corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: mountPath,
+			ReadOnly:  true,
+		}
+		if secretKey := mcpServer.Spec.SecretKey; secretKey != "" {
+			if mcpServer.Spec.SecretMountPath == "" {
+				return nil, fmt.Errorf("secretMountPath must be specified when secretKey is set")
+			}
+			if _, ok := existingSecret.Data[secretKey]; !ok {
+				return nil, fmt.Errorf("secret key %s not found in secret %s/%s", secretKey, mcpServer.Namespace, mcpServer.Spec.SecretRef.Name)
+			}
+			volumeMount.SubPath = secretKey
+		}
+
+		volumeMounts = append(volumeMounts, volumeMount)
+		volumes = append(volumes, corev1.Volume{
+			Name: volumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: mcpServer.Spec.SecretRef.Name,
+				},
+			},
+		})
+	}
+
+	// Add volume mount if ConfigMapRef is specified
 	if mcpServer.Spec.ConfigMapRef != nil {
 		volumeName := mcpServer.Spec.ConfigMapVolumeName
 		if volumeName == "" {
@@ -294,24 +348,22 @@ func (r *MCPServerReconciler) createDeployment(mcpServer *mcpv1alpha1.MCPServer)
 		if mountPath == "" {
 			mountPath = "/etc/mcp-config"
 		}
-		container.VolumeMounts = []corev1.VolumeMount{
-			{
-				Name:      volumeName,
-				MountPath: mountPath,
-				ReadOnly:  true,
-			},
-		}
-		volumes = []corev1.Volume{
-			{
-				Name: volumeName,
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: *mcpServer.Spec.ConfigMapRef,
-					},
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: mountPath,
+			ReadOnly:  true,
+		})
+		volumes = append(volumes, corev1.Volume{
+			Name: volumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: *mcpServer.Spec.ConfigMapRef,
 				},
 			},
-		}
+		})
 	}
+
+	container.VolumeMounts = volumeMounts
 
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -342,7 +394,7 @@ func (r *MCPServerReconciler) createDeployment(mcpServer *mcpv1alpha1.MCPServer)
 	// Add pod security context if specified
 	deployment.Spec.Template.Spec.SecurityContext = mcpServer.Spec.PodSecurityContext
 
-	return deployment
+	return deployment, nil
 }
 
 // reconcileService creates the Service for the MCPServer if it doesn't exist.
