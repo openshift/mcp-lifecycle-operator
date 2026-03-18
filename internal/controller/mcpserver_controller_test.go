@@ -712,6 +712,47 @@ var _ = Describe("MCPServer Controller", func() {
 			Expect(*deployment.Spec.Replicas).To(Equal(int32(1)))
 		})
 
+		It("should allow 0 replicas for scale-to-zero", func() {
+			resource := &mcpv1alpha1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: mcpv1alpha1.MCPServerSpec{
+					Source: mcpv1alpha1.Source{
+						Type: mcpv1alpha1.SourceTypeContainerImage,
+						ContainerImage: &mcpv1alpha1.ContainerImageSource{
+							Ref: "docker.io/library/test-image:latest",
+						},
+					},
+					Config: mcpv1alpha1.ServerConfig{
+						Port: 8080,
+					},
+					Runtime: mcpv1alpha1.RuntimeConfig{
+						Replicas: ptr.To(int32(0)),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+			controllerReconciler := &MCPServerReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			deployment := &appsv1.Deployment{}
+			err = k8sClient.Get(ctx, client.ObjectKey{
+				Name:      resourceName,
+				Namespace: "default",
+			}, deployment)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*deployment.Spec.Replicas).To(Equal(int32(0)))
+		})
+
 		It("should update deployment when replicas changes", func() {
 			resource := &mcpv1alpha1.MCPServer{
 				ObjectMeta: metav1.ObjectMeta{

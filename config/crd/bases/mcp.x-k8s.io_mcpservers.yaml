@@ -530,8 +530,9 @@ spec:
                     description: |-
                       Replicas is the number of MCP server pod replicas to run.
                       Defaults to 1 if not specified.
+                      Set to 0 to scale down the deployment.
                     format: int32
-                    minimum: 1
+                    minimum: 0
                     type: integer
                   security:
                     description: |-

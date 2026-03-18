@@ -286,6 +286,7 @@ func (r *MCPServerReconciler) createDeployment(ctx context.Context, mcpServer *m
 		return nil, fmt.Errorf("unsupported source type: %s", mcpServer.Spec.Source.Type)
 	}
 
+	// Replicas defaults to 1 when not specified (nil)
 	replicas := int32(1)
 	if mcpServer.Spec.Runtime.Replicas != nil {
 		replicas = *mcpServer.Spec.Runtime.Replicas

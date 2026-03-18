@@ -225,8 +225,9 @@ type SecurityConfig struct {
 type RuntimeConfig struct {
 	// Replicas is the number of MCP server pod replicas to run.
 	// Defaults to 1 if not specified.
+	// Set to 0 to scale down the deployment.
 	// +optional
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
 
 	// Security defines security-related configuration.

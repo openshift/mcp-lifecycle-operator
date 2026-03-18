@@ -979,6 +979,31 @@ var _ = Describe("MCPServer Validation", func() {
 			Expect(k8sClient.Create(ctx, mcpServer)).To(Succeed())
 		})
 
+		It("should accept RuntimeConfig with replicas set to 0 for scale-to-zero", func() {
+			replicas := int32(0)
+			mcpServer := &MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "valid-runtime-replicas-zero",
+					Namespace: namespace.Name,
+				},
+				Spec: MCPServerSpec{
+					Source: Source{
+						Type: SourceTypeContainerImage,
+						ContainerImage: &ContainerImageSource{
+							Ref: "docker.io/library/test-image:latest",
+						},
+					},
+					Config: ServerConfig{
+						Port: 8080,
+					},
+					Runtime: RuntimeConfig{
+						Replicas: &replicas,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, mcpServer)).To(Succeed())
+		})
+
 		It("should accept RuntimeConfig with security set", func() {
 			mcpServer := &MCPServer{
 				ObjectMeta: metav1.ObjectMeta{
