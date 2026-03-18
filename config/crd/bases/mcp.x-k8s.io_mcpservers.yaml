@@ -320,10 +320,10 @@ spec:
                           default: ReadOnly
                           description: |-
                             Permissions specifies the access permissions for the mount.
-                            Allowed values are:
-                            - ReadOnly: mount is read-only
-                            - ReadWrite: mount is read-write
-                            - RecursiveReadOnly: mount and all submounts are recursively read-only
+                            Allowed values are ReadOnly, ReadWrite, and RecursiveReadOnly.
+                            When set to ReadOnly, the mount is read-only.
+                            When set to ReadWrite, the mount is read-write.
+                            When set to RecursiveReadOnly, the mount and all submounts are recursively read-only.
                             Defaults to ReadOnly for ConfigMap and Secret mounts.
                           enum:
                           - ReadOnly
@@ -1090,10 +1090,10 @@ spec:
                   Conditions represent the current state of the MCPServer resource.
                   Each condition has a unique type and reflects the status of a specific aspect of the resource.
 
-                  Standard condition types include:
-                  - "Ready": the resource is fully functional and available
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
+                  Standard condition types include "Ready", "Progressing", and "Degraded".
+                  The "Ready" condition indicates the resource is fully functional and available.
+                  The "Progressing" condition indicates the resource is being created or updated.
+                  The "Degraded" condition indicates the resource failed to reach or maintain its desired state.
 
                   The status of each condition is one of True, False, or Unknown.
                 items:
