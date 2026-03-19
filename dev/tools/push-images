@@ -94,8 +94,17 @@ if __name__ == "__main__":
                         help="Image tag for this build. Defaults to v{date}-{git_describe}",
                         type=str,
                         default=os.getenv("IMAGE_TAG"))
+    parser.add_argument("--local",
+                        dest="local",
+                        action="store_true",
+                        help="Build locally (single platform, no push)")
     args = parser.parse_args()
 
-    args.docker_build_output_type = "registry"
+    if args.local:
+        args.docker_build_output_type = "docker"
+        if not args.image_prefix:
+            args.image_prefix = "localhost/"
+    else:
+        args.docker_build_output_type = "registry"
 
     main(args)
