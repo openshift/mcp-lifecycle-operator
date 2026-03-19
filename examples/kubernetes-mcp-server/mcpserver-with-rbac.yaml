@@ -53,9 +53,10 @@ spec:
       - /etc/mcp-config/config.toml
     storage:
       - path: /etc/mcp-config
-        type: ConfigMap
-        configMap:
-          name: kubernetes-mcp-server-config
+        source:
+          type: ConfigMap
+          configMap:
+            name: kubernetes-mcp-server-config
   runtime:
     security:
       serviceAccountName: mcp-viewer  # Use the ServiceAccount with RBAC permissions
