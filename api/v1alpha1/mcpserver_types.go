@@ -248,6 +248,7 @@ type SecurityConfig struct {
 //
 // If not specified, default runtime settings will be applied.
 // See individual field documentation for specific defaults.
+// +kubebuilder:validation:MinProperties=1
 type RuntimeConfig struct {
 	// Replicas is the number of MCP server pod replicas to run.
 	// Defaults to 1 if not specified.

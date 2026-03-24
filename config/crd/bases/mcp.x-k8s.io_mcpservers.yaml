@@ -533,6 +533,7 @@ spec:
                 description: |-
                   Runtime defines runtime management configuration.
                   If not specified, default runtime settings will be applied.
+                minProperties: 1
                 properties:
                   replicas:
                     description: |-

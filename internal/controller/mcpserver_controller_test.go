@@ -2461,6 +2461,8 @@ var _ = Describe("MCPServer Controller - Storage Mounts", func() {
 			Expect(deployment.Spec.Template.Spec.Containers[0].Resources.Requests).To(HaveKeyWithValue(corev1.ResourceMemory, resource.MustParse("256Mi")))
 			Expect(deployment.Spec.Template.Spec.Containers[0].Resources.Limits).To(HaveKeyWithValue(corev1.ResourceCPU, resource.MustParse("500m")))
 			Expect(deployment.Spec.Template.Spec.Containers[0].Resources.Limits).To(HaveKeyWithValue(corev1.ResourceMemory, resource.MustParse("512Mi")))
+			// Verify replicas defaults to 1 even when runtime is specified with other fields
+			Expect(*deployment.Spec.Replicas).To(Equal(int32(1)))
 		})
 
 		It("should update deployment when resources change", func() {
