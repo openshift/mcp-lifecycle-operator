@@ -22,6 +22,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -315,10 +316,7 @@ func (r *MCPServerReconciler) createDeployment(ctx context.Context, mcpServer *m
 	if mcpServer.Spec.Runtime.Replicas != nil {
 		replicas = *mcpServer.Spec.Runtime.Replicas
 	}
-	labels := map[string]string{
-		"app":        "mcp-server",
-		"mcp-server": mcpServer.Name,
-	}
+	labels := createChildObjectsLabels(mcpServer)
 
 	container := corev1.Container{
 		Name:  "mcp-server",
@@ -388,9 +386,7 @@ func (r *MCPServerReconciler) createDeployment(ctx context.Context, mcpServer *m
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"mcp-server": mcpServer.Name,
-				},
+				MatchLabels: labels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
@@ -573,10 +569,7 @@ func (r *MCPServerReconciler) reconcileService(
 
 // createService creates a Service for the MCPServer
 func (r *MCPServerReconciler) createService(mcpServer *mcpv1alpha1.MCPServer) *corev1.Service {
-	labels := map[string]string{
-		"app":        "mcp-server",
-		"mcp-server": mcpServer.Name,
-	}
+	labels := createChildObjectsLabels(mcpServer)
 
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -644,6 +637,15 @@ func (r *MCPServerReconciler) applyStatus(
 		client.FieldOwner(fieldManager),
 		client.ForceOwnership,
 	)
+}
+
+func createChildObjectsLabels(mcpServer *mcpv1alpha1.MCPServer) map[string]string {
+	labels := map[string]string{
+		"app":        "mcp-server",
+		"mcp-server": mcpServer.Name,
+	}
+	maps.Copy(labels, mcpServer.Labels)
+	return labels
 }
 
 func conditionToAC(condition metav1.Condition) *v1ac.ConditionApplyConfiguration {
