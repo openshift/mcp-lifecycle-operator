@@ -11,7 +11,7 @@ WORKDIR /workspace
 COPY . .
 
 ENV GOEXPERIMENT=strictfipsruntime
-RUN make -f Makefile-ocp.mk build-ocp GO_BUILD_ENV='GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH}'
+RUN make -f Makefile-ocp.mk build-ocp GO_BUILD_ENV="GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH}"
 
 FROM --platform=$TARGETPLATFORM ${BASE_IMAGE}
 WORKDIR /
