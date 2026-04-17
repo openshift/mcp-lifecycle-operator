@@ -32,13 +32,18 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	v1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	mcpv1alpha1 "github.com/kubernetes-sigs/mcp-lifecycle-operator/api/v1alpha1"
 	acv1alpha1 "github.com/kubernetes-sigs/mcp-lifecycle-operator/api/v1alpha1/applyconfiguration/api/v1alpha1"
@@ -77,6 +82,14 @@ const (
 const (
 	// requeueDelayDeploymentUnavailable is the delay before requeuing when a deployment is not yet available.
 	requeueDelayDeploymentUnavailable = 15 * time.Second
+)
+
+// Index keys for field indexing.
+const (
+	// configMapIndexKey is the index key for finding MCPServers by ConfigMap reference.
+	configMapIndexKey = "spec.configMapRefs"
+	// secretIndexKey is the index key for finding MCPServers by Secret reference.
+	secretIndexKey = "spec.secretRefs"
 )
 
 // MCPServerReconciler reconciles a MCPServer object
@@ -418,6 +431,32 @@ func (r *MCPServerReconciler) reconcileDeployment(
 		return nil, err
 	}
 
+	// Validate ownership before updating
+	if err := r.validateOwnership(existingDeployment, mcpServer); err != nil {
+		logger.Error(err, "Deployment ownership validation failed")
+		return nil, err
+	}
+
+	// Check if we need to adopt an orphaned resource by comparing owner UIDs before updating
+	oldOwnerUID := ""
+	if oldOwner := metav1.GetControllerOf(existingDeployment); oldOwner != nil {
+		oldOwnerUID = string(oldOwner.UID)
+	}
+
+	// Update ownerReferences to establish/refresh controller ownership.
+	// This is safe because validateOwnership has confirmed we can manage this resource.
+	// For orphaned resources, this adopts them by updating the stale UID.
+	if err := controllerutil.SetControllerReference(mcpServer, existingDeployment, r.Scheme); err != nil {
+		logger.Error(err, "Failed to set controller reference for existing Deployment")
+		return nil, err
+	}
+
+	// Check if we actually adopted an orphaned resource (owner UID changed)
+	ownershipChanged := false
+	if newOwner := metav1.GetControllerOf(existingDeployment); newOwner != nil {
+		ownershipChanged = oldOwnerUID != string(newOwner.UID)
+	}
+
 	oldPodSpec := existingDeployment.Spec.Template.Spec
 	newPodSpec := deployment.Spec.Template.Spec
 
@@ -440,7 +479,8 @@ func (r *MCPServerReconciler) reconcileDeployment(
 			!equality.Semantic.DeepEqual(oldPodSpec.Containers[0].LivenessProbe, newPodSpec.Containers[0].LivenessProbe) ||
 			!equality.Semantic.DeepEqual(oldPodSpec.Containers[0].ReadinessProbe, newPodSpec.Containers[0].ReadinessProbe) ||
 			oldPodSpec.ServiceAccountName != newPodSpec.ServiceAccountName ||
-			!equality.Semantic.DeepEqual(existingDeployment.Spec.Replicas, deployment.Spec.Replicas)
+			!equality.Semantic.DeepEqual(existingDeployment.Spec.Replicas, deployment.Spec.Replicas) ||
+			ownershipChanged
 	}
 	if needsUpdate {
 		logger.Info("Updating Deployment", "name", existingDeployment.Name)
@@ -657,7 +697,37 @@ func (r *MCPServerReconciler) reconcileService(
 	} else if err != nil {
 		logger.Error(err, "Failed to get Service")
 		return err
-	} else if !equality.Semantic.DeepEqual(service.Spec.Ports, existingService.Spec.Ports) {
+	}
+
+	// Validate ownership before updating
+	if err := r.validateOwnership(existingService, mcpServer); err != nil {
+		logger.Error(err, "Service ownership validation failed")
+		return err
+	}
+
+	// Check if we need to adopt an orphaned resource by comparing owner UIDs before updating
+	oldOwnerUID := ""
+	if oldOwner := metav1.GetControllerOf(existingService); oldOwner != nil {
+		oldOwnerUID = string(oldOwner.UID)
+	}
+
+	// Update ownerReferences to establish/refresh controller ownership.
+	// This is safe because validateOwnership has confirmed we can manage this resource.
+	// For orphaned resources, this adopts them by updating the stale UID.
+	if err := controllerutil.SetControllerReference(mcpServer, existingService, r.Scheme); err != nil {
+		logger.Error(err, "Failed to set controller reference for existing Service")
+		return err
+	}
+
+	// Check if we actually adopted an orphaned resource (owner UID changed)
+	ownershipChanged := false
+	if newOwner := metav1.GetControllerOf(existingService); newOwner != nil {
+		ownershipChanged = oldOwnerUID != string(newOwner.UID)
+	}
+
+	// Update if ports changed OR if we adopted an orphaned resource
+	needsUpdate := !equality.Semantic.DeepEqual(service.Spec.Ports, existingService.Spec.Ports) || ownershipChanged
+	if needsUpdate {
 		logger.Info("Updating Service", "name", existingService.Name)
 		existingService.Spec.Ports = service.Spec.Ports
 		if err := r.Update(ctx, existingService); err != nil {
@@ -701,6 +771,64 @@ func (r *MCPServerReconciler) createService(mcpServer *mcpv1alpha1.MCPServer) *c
 	}
 
 	return service
+}
+
+// isSameGroupKind checks if an owner reference matches the expected API group and kind,
+// ignoring the API version to support cross-version adoption scenarios.
+func isSameGroupKind(ownerRef *metav1.OwnerReference, expectedGroup, expectedKind string) bool {
+	if ownerRef.Kind != expectedKind {
+		return false
+	}
+
+	ownerGV, err := schema.ParseGroupVersion(ownerRef.APIVersion)
+	if err != nil {
+		return false
+	}
+
+	return ownerGV.Group == expectedGroup
+}
+
+// validateOwnership checks if a resource is owned by a different controller.
+// Returns an error if the resource has a controller owner that is not the given MCPServer,
+// or if the resource has no controller owner (preventing silent adoption of unowned resources).
+func (r *MCPServerReconciler) validateOwnership(
+	obj client.Object,
+	mcpServer *mcpv1alpha1.MCPServer,
+) error {
+	// Get the controller owner reference from the existing resource
+	controllerOwner := metav1.GetControllerOf(obj)
+	if controllerOwner == nil {
+		// No controller owner - reject to prevent silent adoption
+		// User must delete the existing resource or choose a different name for their MCPServer
+		return fmt.Errorf("resource %s/%s exists but has no controller owner; "+
+			"delete the resource first or choose a different name for the MCPServer",
+			obj.GetNamespace(), obj.GetName())
+	}
+
+	// Check if the controller owner is this MCPServer by UID
+	if controllerOwner.UID == mcpServer.UID {
+		// Owned by this exact MCPServer instance - safe to update
+		return nil
+	}
+
+	// Check if the owner is an MCPServer with the same name/namespace/group
+	// This handles the case where the MCPServer was deleted and recreated
+	// with the same name, and we want to adopt the orphaned resources.
+	// We validate the API group but allow different versions to support upgrades.
+	if isSameGroupKind(controllerOwner, mcpv1alpha1.GroupVersion.Group, mcpv1alpha1.MCPServerKind) &&
+		controllerOwner.Name == mcpServer.Name &&
+		obj.GetNamespace() == mcpServer.Namespace {
+		// Owner is an MCPServer with same group/name/namespace but different UID
+		// This means the old MCPServer was deleted and this is a new one
+		// Safe to adopt the resources (version may differ during upgrades)
+		return nil
+	}
+
+	// Resource is owned by a different controller
+	return fmt.Errorf("resource %s/%s is owned by %s/%s (UID: %s), cannot be managed by MCPServer %s/%s (UID: %s)",
+		obj.GetNamespace(), obj.GetName(),
+		controllerOwner.Kind, controllerOwner.Name, controllerOwner.UID,
+		mcpServer.Namespace, mcpServer.Name, mcpServer.UID)
 }
 
 func (r *MCPServerReconciler) applyStatus(
@@ -1022,12 +1150,180 @@ func (r *MCPServerReconciler) setAcceptedCondition(
 	), true
 }
 
+// extractConfigMapNames is an index extractor that returns all ConfigMap names
+// referenced by an MCPServer. Used for efficient ConfigMap watch lookups.
+// This returns both required and optional ConfigMap references, matching Kubernetes
+// semantics where optional resources are still used when available.
+func extractConfigMapNames(obj client.Object) []string {
+	mcpServer := obj.(*mcpv1alpha1.MCPServer)
+	var configMaps []string
+	seen := make(map[string]bool)
+
+	// Extract from storage mounts
+	for _, storage := range mcpServer.Spec.Config.Storage {
+		if storage.Source.Type == mcpv1alpha1.StorageTypeConfigMap &&
+			storage.Source.ConfigMap != nil {
+			name := storage.Source.ConfigMap.Name
+			if !seen[name] {
+				configMaps = append(configMaps, name)
+				seen[name] = true
+			}
+		}
+	}
+
+	// Extract from envFrom
+	for _, envFrom := range mcpServer.Spec.Config.EnvFrom {
+		if envFrom.ConfigMapRef != nil {
+			name := envFrom.ConfigMapRef.Name
+			if !seen[name] {
+				configMaps = append(configMaps, name)
+				seen[name] = true
+			}
+		}
+	}
+
+	// Extract from env valueFrom
+	for _, env := range mcpServer.Spec.Config.Env {
+		if env.ValueFrom != nil && env.ValueFrom.ConfigMapKeyRef != nil {
+			name := env.ValueFrom.ConfigMapKeyRef.Name
+			if !seen[name] {
+				configMaps = append(configMaps, name)
+				seen[name] = true
+			}
+		}
+	}
+
+	return configMaps
+}
+
+// extractSecretNames is an index extractor that returns all Secret names
+// referenced by an MCPServer. Used for efficient Secret watch lookups.
+// This returns both required and optional Secret references, matching Kubernetes
+// semantics where optional resources are still used when available.
+func extractSecretNames(obj client.Object) []string {
+	mcpServer := obj.(*mcpv1alpha1.MCPServer)
+	var secrets []string
+	seen := make(map[string]bool)
+
+	// Extract from storage mounts
+	for _, storage := range mcpServer.Spec.Config.Storage {
+		if storage.Source.Type == mcpv1alpha1.StorageTypeSecret &&
+			storage.Source.Secret != nil {
+			name := storage.Source.Secret.SecretName
+			if !seen[name] {
+				secrets = append(secrets, name)
+				seen[name] = true
+			}
+		}
+	}
+
+	// Extract from envFrom
+	for _, envFrom := range mcpServer.Spec.Config.EnvFrom {
+		if envFrom.SecretRef != nil {
+			name := envFrom.SecretRef.Name
+			if !seen[name] {
+				secrets = append(secrets, name)
+				seen[name] = true
+			}
+		}
+	}
+
+	// Extract from env valueFrom
+	for _, env := range mcpServer.Spec.Config.Env {
+		if env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil {
+			name := env.ValueFrom.SecretKeyRef.Name
+			if !seen[name] {
+				secrets = append(secrets, name)
+				seen[name] = true
+			}
+		}
+	}
+
+	return secrets
+}
+
+// findMCPServersForResource is a generic helper that finds all MCPServers
+// referencing a given resource by name using the specified field index.
+func (r *MCPServerReconciler) findMCPServersForResource(
+	ctx context.Context,
+	resourceName string,
+	namespace string,
+	indexKey string,
+) []reconcile.Request {
+	logger := log.FromContext(ctx)
+	var mcpServers mcpv1alpha1.MCPServerList
+
+	// Use the index to find MCPServers that reference this resource
+	if err := r.List(ctx, &mcpServers,
+		client.InNamespace(namespace),
+		client.MatchingFields{indexKey: resourceName},
+	); err != nil {
+		logger.Error(err, "Failed to list MCPServers for resource",
+			"resourceName", resourceName,
+			"namespace", namespace,
+			"indexKey", indexKey)
+		return []reconcile.Request{}
+	}
+
+	requests := make([]reconcile.Request, 0, len(mcpServers.Items))
+	for _, mcpServer := range mcpServers.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(&mcpServer),
+		})
+	}
+	return requests
+}
+
+// findMCPServersForConfigMap finds all MCPServers that reference the given ConfigMap
+// using the field index for efficient lookup.
+func (r *MCPServerReconciler) findMCPServersForConfigMap(ctx context.Context, configMap client.Object) []reconcile.Request {
+	return r.findMCPServersForResource(ctx, configMap.GetName(), configMap.GetNamespace(), configMapIndexKey)
+}
+
+// findMCPServersForSecret finds all MCPServers that reference the given Secret
+// using the field index for efficient lookup.
+func (r *MCPServerReconciler) findMCPServersForSecret(ctx context.Context, secret client.Object) []reconcile.Request {
+	return r.findMCPServersForResource(ctx, secret.GetName(), secret.GetNamespace(), secretIndexKey)
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	ctx := context.Background()
+
+	// Register ConfigMap index for efficient lookups
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx,
+		&mcpv1alpha1.MCPServer{},
+		configMapIndexKey,
+		extractConfigMapNames,
+	); err != nil {
+		return fmt.Errorf("failed to setup ConfigMap index: %w", err)
+	}
+
+	// Register Secret index for efficient lookups
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx,
+		&mcpv1alpha1.MCPServer{},
+		secretIndexKey,
+		extractSecretNames,
+	); err != nil {
+		return fmt.Errorf("failed to setup Secret index: %w", err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&mcpv1alpha1.MCPServer{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
+		Watches(
+			&corev1.ConfigMap{},
+			handler.EnqueueRequestsFromMapFunc(r.findMCPServersForConfigMap),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.findMCPServersForSecret),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
 		Named("mcpserver").
 		Complete(r)
 }
