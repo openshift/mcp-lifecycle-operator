@@ -1,0 +1,35 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "assigneesFromCodeOwners": true,
+  "automergeStrategy": "auto",
+  "automergeType": "pr",
+  "prConcurrentLimit": 5,
+  "ignoreTests": false,
+  "rebaseLabel": "needs-rebase",
+  "rebaseWhen": "behind-base-branch",
+  "recreateWhen": "always",
+  "commitMessageSuffix": "{{baseBranch}}",
+  "ignorePaths": ["Dockerfile", "/docs/**"],
+  "packageRules": [
+    {
+      "matchManagers": ["tekton"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "all minor dependencies",
+      "automerge": true,
+      "description": "Group all minor dependencies",
+      "addLabels": ["jira/valid-reference", "lgtm", "approved"]
+    },
+    {
+      "matchManagers": ["dockerfile"],
+      "matchFileNames": ["Dockerfile.ci", "Dockerfile.ocp"],
+      "automerge": true,
+      "addLabels": ["jira/valid-reference", "lgtm", "approved"]
+    }
+  ],
+  "gomod": {
+    "enabled": false
+  },
+  "vulnerabilityAlerts": {
+    "enabled": true
+  }
+}
