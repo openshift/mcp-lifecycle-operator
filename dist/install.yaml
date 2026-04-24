@@ -1940,7 +1940,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: quay.io/redhat-user-workloads/mcp-lifecycle-operator-tenant/mcp-lifecycle-operator-main:latest
+        image: quay.io/redhat-user-workloads/mcp-lifecycle-operator-tenant/mcp-lifecycle-operator-release-010:latest
         livenessProbe:
           httpGet:
             path: /healthz
