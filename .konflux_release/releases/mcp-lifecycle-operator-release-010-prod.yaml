@@ -1,0 +1,16 @@
+apiVersion: appstudio.redhat.com/v1alpha1
+kind: Release
+metadata:
+  name: mcp-lifecycle-operator-release-010-prod
+  namespace: mcp-lifecycle-operator-tenant
+  labels:
+    release.appstudio.openshift.io/automated: "false"
+    release.appstudio.openshift.io/author: kpande
+spec:
+  releasePlan: mcp-lifecycle-operator-releaseplan-010-prod
+  snapshot: mcp-lifecycle-operator-010-override-snapshot-1
+  data:
+    releaseNotes:
+      references:
+        - "https://github.com/openshift/mcp-lifecycle-operator/blob/main/README.md"
+      type: "RHEA"

@@ -1,0 +1,20 @@
+apiVersion: appstudio.redhat.com/v1alpha1
+kind: Snapshot
+metadata:
+  name: mcp-lifecycle-operator-010-override-snapshot-1
+  namespace: mcp-lifecycle-operator-tenant
+  labels:
+    test.appstudio.openshift.io/type: override
+    application: mcp-lifecycle-operator-01
+    branch: release-0.1
+spec:
+  application: mcp-lifecycle-operator-01
+  components:
+    - name: mcp-lifecycle-operator-release-010
+      # Use the digest from a successful Konflux build, not a mutable tag.
+      containerImage: "quay.io/redhat-user-workloads/mcp-lifecycle-operator-tenant/mcp-lifecycle-operator-release-010@sha256:c00ad1759fa2fdd9befac7ecf009e737a453bdcbdeea89e2d64c4faf36ad07c2"
+      source:
+        git:
+          url: "https://github.com/openshift/mcp-lifecycle-operator.git"
+          revision: "68e1c687b9ea3609ca118dccbd4fe28ae008f439"
+          dockerfileUrl: "Dockerfile.ocp"
