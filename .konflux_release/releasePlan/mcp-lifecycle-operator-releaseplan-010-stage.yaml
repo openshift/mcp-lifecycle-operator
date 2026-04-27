@@ -1,0 +1,20 @@
+apiVersion: appstudio.redhat.com/v1alpha1
+kind: ReleasePlan
+metadata:
+  name: mcp-lifecycle-operator-releaseplan-010-stage
+  namespace: mcp-lifecycle-operator-tenant
+  labels:
+    release.appstudio.openshift.io/auto-release: "false"
+    release.appstudio.openshift.io/releasePlanAdmission: mcp-lifecycle-operator-010-stage
+    release.appstudio.openshift.io/standing-attribution: "true"
+spec:
+  application: mcp-lifecycle-operator-01
+  target: rhtap-releng-tenant
+  data:
+    releaseNotes:
+      solution: |
+        The MCP lifecycle operator provides a declarative way to deploy and manage MCP server container workloads on OpenShift.
+      description: "The Developer Preview (DP) 0.1.0 release of MCP lifecycle operator."
+      topic: |
+        The 0.1.0 Developer Preview (DP) release of MCP lifecycle operator introduces the MCPServer custom resource for deploying, configuring, exposing, and safely rolling out MCP server containers. The operator creates and manages the workloads and services needed to run MCP servers, reports connection details in status, and supports runtime, storage, and security configuration.
+      synopsis: "MCP lifecycle operator Developer Preview (DP) 0.1.0"
