@@ -1,0 +1,56 @@
+# This example shows how to integrate an in-cluster kubernetes-mcp-server
+# (deployed via MCP Lifecycle Operator) with the mcp-gateway.
+#
+# Prerequisites:
+# 1. mcp-gateway deployed in the cluster (in gateway-system namespace)
+# 2. kubernetes-mcp-server deployed via mcpserver-with-rbac.yaml
+#
+# This creates:
+# - HTTPRoute: Routes traffic from mcp-gateway to the kubernetes-mcp-server Service
+#   * IMPORTANT: Must include a hostname (e.g., kubernetes-mcp.mcp.local)
+# - MCPServerRegistration: Registers the MCP server with the gateway
+#
+# Note: Unlike external MCP servers, you do NOT need:
+# - ExternalName Service (you already have a ClusterIP Service from the MCPServer CR)
+# - ServiceEntry (not needed for in-cluster services)
+#
+# After applying, verify the registration:
+# $ kubectl get mcpserverregistration kubernetes-mcp-server -n default
+# NAME                    PREFIX   TARGET           PATH   READY   TOOLS
+# kubernetes-mcp-server   kube_    kubernetes-mcp   /mcp   True    13
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kubernetes-mcp
+  namespace: default  # Same namespace as your kubernetes-mcp-server
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+    namespace: gateway-system  # Adjust if your gateway is in a different namespace
+  hostnames:
+  - kubernetes-mcp.mcp.local  # Required: hostname for routing
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /mcp  # Gateway will route requests to /mcp/* to this MCP server
+    backendRefs:
+    - group: ""
+      kind: Service
+      name: kubernetes-mcp-server  # Your existing Service from the MCPServer CR
+      port: 8080
+---
+apiVersion: mcp.kagenti.com/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: kubernetes-mcp-server
+  namespace: default  # Same namespace as the HTTPRoute
+spec:
+  toolPrefix: kube_  # Tools will be prefixed with kube_ (e.g., kube_namespaces_list)
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: kubernetes-mcp  # References the HTTPRoute above
